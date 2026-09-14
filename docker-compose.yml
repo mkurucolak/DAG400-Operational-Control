@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------
+  # 1. VERİTABANI: PostgreSQL
+  # ---------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: checklist_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-supersecret123}
+      POSTGRES_DB: ${DB_NAME:-checklist_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-admin}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------
+  # 2. BACKEND: Python FastAPI
+  # ---------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: checklist_backend
+    restart: unless-stopped
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-admin}:${DB_PASSWORD:-supersecret123}@db:5432/${DB_NAME:-checklist_db}
+      - SECRET_KEY=${SECRET_KEY:-your_jwt_secret_key_here}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./backend/reports:/app/reports
+  # ---------------------------------------------
+  # 3. FRONTEND: React (Vite)
+  # ---------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: checklist_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+volumes:
+  pgdata:
+  pdf_reports:
